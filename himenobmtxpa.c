@@ -39,10 +39,11 @@
 #include <stdio.h>
 #include <sys/time.h>
 
-#define MR(mt,n,r,c,d)  mt->m[(n) * mt->mrows * mt->mcols * mt->mdeps + (r) * mt->mcols* mt->mdeps + (c) * mt->mdeps + (d)]
+
 
 struct Mat {
-  float* m;
+ 
+  float**** m;
   int mnums;
   int mrows;
   int mcols;
@@ -106,6 +107,7 @@ main(int argc, char *argv[])
   /*
    *    Initializing matrixes
    */
+
   newMat(&p,1,mimax,mjmax,mkmax);
   newMat(&bnd,1,mimax,mjmax,mkmax);
   newMat(&wrk1,1,mimax,mjmax,mkmax);
@@ -133,6 +135,7 @@ main(int argc, char *argv[])
    *    Start measuring
    */
   nn= 3;
+
   printf(" Start rehearsal measurement process.\n");
   printf(" Measure the performance in %d times.\n\n",nn);
 
@@ -146,7 +149,7 @@ main(int argc, char *argv[])
          mflops(nn,cpu,flop),cpu,gosa);
 
   nn= (int)(target/(cpu/3.0));
-
+  
   printf(" Now, start the actual measurement process.\n");
   printf(" The loop will be excuted in %d times\n",nn);
   printf(" This will take about one minute.\n");
@@ -230,22 +233,41 @@ set_param(int is[],char *size)
 int
 newMat(Matrix* Mat, int mnums,int mrows, int mcols, int mdeps)
 {
+  int i,j,k;
   Mat->mnums= mnums;
   Mat->mrows= mrows;
   Mat->mcols= mcols;
   Mat->mdeps= mdeps;
   Mat->m= NULL;
-  Mat->m= (float*) 
-    malloc(mnums * mrows * mcols * mdeps * sizeof(float));
-  
+ Mat->m= (float ****) malloc(mnums * sizeof(float ***));
+  for(i= 0; i< mnums; i++)
+	Mat->m[i] = (float ***) malloc( mrows * sizeof(float **));
+  for( i =0; i < mnums; i++) 
+    for(j = 0; j < mrows ; j++) 
+	Mat->m[i][j] =(float **) malloc(mcols * sizeof(float *));
+   for( i =0; i < mnums; i++) 
+    for(j = 0; j < mrows ; j++) 
+        for( k = 0 ; k < mcols ; k++) 
+            Mat->m[i][j][k] =(float *) malloc(mdeps * sizeof(float));
   return(Mat->m != NULL) ? 1:0;
 }
 
 void
 clearMat(Matrix* Mat)
 {
-  if(Mat->m)
+  if(Mat->m){
+    int i,j,k;
+    for( i =0; i < Mat->mnums; i++) {
+      for(j = 0; j < Mat->mrows ; j++) {
+        for( k = 0 ; k < Mat->mcols ; k++) {
+            free(Mat->m[i][j][k]);
+        }
+        free(Mat->m[i][j]);
+      }
+      free(Mat->m[i]);
+    }
     free(Mat->m);
+  }
   Mat->m= NULL;
   Mat->mnums= 0;
   Mat->mcols= 0;
@@ -261,7 +283,7 @@ mat_set(Matrix* Mat, int l, float val)
     for(i=0; i<Mat->mrows; i++)
       for(j=0; j<Mat->mcols; j++)
         for(k=0; k<Mat->mdeps; k++)
-          MR(Mat,l,i,j,k)= val;
+          Mat->m[l][i][j][k]= val;
 }
 
 void
@@ -273,7 +295,7 @@ mat_set_init(Matrix* Mat)
   for(i=0; i<Mat->mrows; i++)
     for(j=0; j<Mat->mcols; j++)
       for(k=0; k<Mat->mdeps; k++)
-        MR(Mat,0,i,j,k)= (float)(i*i)
+        Mat->m[0][i][j][k]= (float)(i*i)
           /(float)((Mat->mrows - 1)*(Mat->mrows - 1));
 }
 
@@ -291,36 +313,38 @@ jacobi(int nn, Matrix* a,Matrix* b,Matrix* c,
   for(n=0 ; n<nn ; n++){
     gosa = 0.0;
 
+
     for(i=1 ; i<imax; i++)
       for(j=1 ; j<jmax ; j++)
         for(k=1 ; k<kmax ; k++){
-          s0= MR(a,0,i,j,k)*MR(p,0,i+1,j,  k)
-            + MR(a,1,i,j,k)*MR(p,0,i,  j+1,k)
-            + MR(a,2,i,j,k)*MR(p,0,i,  j,  k+1)
-            + MR(b,0,i,j,k)
-             *( MR(p,0,i+1,j+1,k) - MR(p,0,i+1,j-1,k)
-              - MR(p,0,i-1,j+1,k) + MR(p,0,i-1,j-1,k) )
-            + MR(b,1,i,j,k)
-             *( MR(p,0,i,j+1,k+1) - MR(p,0,i,j-1,k+1)
-              - MR(p,0,i,j+1,k-1) + MR(p,0,i,j-1,k-1) )
-            + MR(b,2,i,j,k)
-             *( MR(p,0,i+1,j,k+1) - MR(p,0,i-1,j,k+1)
-              - MR(p,0,i+1,j,k-1) + MR(p,0,i-1,j,k-1) )
-            + MR(c,0,i,j,k) * MR(p,0,i-1,j,  k)
-            + MR(c,1,i,j,k) * MR(p,0,i,  j-1,k)
-            + MR(c,2,i,j,k) * MR(p,0,i,  j,  k-1)
-            + MR(wrk1,0,i,j,k);
+            s0= a->m[0][i][j][k]*p->m[0][i+1][j][k]
+            + a->m[1][i][j][k]*p->m[0][i][j+1][k]
+            + a->m[2][i][j][k]*p->m[0][i][j][k+1]
+            + b->m[0][i][j][k]
+             *( p->m[0][i+1][j+1][k] - p->m[0][i+1][j-1][k]
+              - p->m[0][i-1][j+1][k] + p->m[0][i-1][j-1][k] )
+            + b->m[1][i][j][k]
+             *( p->m[0][i][j+1][k+1] - p->m[0][i][j-1][k+1]
+              - p->m[0][i][j+1][k-1] + p->m[0][i][j-1][k-1] )
+            + b->m[2][i][j][k]
+             *( p->m[0][i+1][j][k+1] - p->m[0][i-1][j][k+1]
+              - p->m[0][i+1][j][k-1] + p->m[0][i-1][j][k-1] )
+            + c->m[0][i][j][k] * p->m[0][i-1][j][ k]
+            + c->m[1][i][j][k] * p->m[0][i][j-1][k]
+            + c->m[2][i][j][k] * p->m[0][i][j][k-1]
+            + wrk1->m[0][i][j][k];
 
-          ss= (s0*MR(a,3,i,j,k) - MR(p,0,i,j,k))*MR(bnd,0,i,j,k);
+          ss= (s0*a->m[3][i][j][k] - p->m[0][i][j][k])*bnd->m[0][i][j][k];
+
 
           gosa+= ss*ss;
-          MR(wrk2,0,i,j,k)= MR(p,0,i,j,k) + omega*ss;
+          wrk2->m[0][i][j][k]= p->m[0][i][j][k] + omega*ss;
         }
 
     for(i=1 ; i<imax ; i++)
       for(j=1 ; j<jmax ; j++)
         for(k=1 ; k<kmax ; k++)
-          MR(p,0,i,j,k)= MR(wrk2,0,i,j,k);
+          p->m[0][i][j][k]= wrk2->m[0][i][j][k];
     
   } /* end n loop */
 
